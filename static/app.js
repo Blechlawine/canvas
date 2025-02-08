@@ -21,8 +21,46 @@ async function main() {
 	canvas.width = width;
 	initSocket(ctx);
 	initCamera();
+	initToolbar();
 }
 
+/** @type {number | null} */
+let selectedColor = null;
+function initToolbar() {
+	const toolbar = document.getElementById("toolbar");
+	/** @type {HTMLButtonElement[]} */
+	const buttons = [];
+	/**
+	 * @param {string} color
+	 * @returns {HTMLButtonElement}
+	 */
+	function createColorButton(color) {
+		const button = document.createElement("button");
+		button.style.background = color;
+		button.classList.add("color-button");
+		buttons.push(button);
+		button.addEventListener("click", () => {
+			if (selectedColor === colors.indexOf(color)) {
+				selectedColor = null;
+				button.classList.remove("selected");
+				return;
+			}
+			button.classList.add("selected");
+			selectedColor = colors.indexOf(color);
+			for (const otherButton of buttons) {
+				if (otherButton !== button) {
+					otherButton.classList.remove("selected");
+				}
+			}
+		});
+		return button;
+	}
+	for (const color of colors) {
+		toolbar.appendChild(createColorButton(color));
+	}
+}
+
+let spacebarHeld = false;
 function initCamera() {
 	let canvasPositionX = 0;
 	let canvasPositionY = 0;
@@ -38,7 +76,6 @@ function initCamera() {
 		canvasContainer.style.scale = `${canvasScale}`;
 	}
 
-	let canMove = false;
 	let moving = false;
 	let mouseDownPositionX = null;
 	let mouseDownPositionY = null;
@@ -53,7 +90,7 @@ function initCamera() {
 	});
 	window.addEventListener("mousemove", (event) => {
 		event.preventDefault();
-		if (canMove && moving) {
+		if (spacebarHeld && moving) {
 			moveCanvas(event);
 		}
 	});
@@ -76,14 +113,14 @@ function initCamera() {
 		if (event.code === "Space") {
 			event.preventDefault();
 			document.body.style.cursor = "grab";
-			canMove = true;
+			spacebarHeld = true;
 		}
 	});
 	window.addEventListener("keyup", (event) => {
 		if (event.code === "Space") {
 			event.preventDefault();
 			document.body.style.cursor = "auto";
-			canMove = false;
+			spacebarHeld = false;
 		}
 	});
 	function moveCanvas(event) {
@@ -108,9 +145,14 @@ function initSocket(ctx) {
 		ctx.fillRect(data.x * pixelSize, data.y * pixelSize, pixelSize, pixelSize);
 	});
 
-	const testButton = document.getElementById("button");
-	testButton.addEventListener("click", () => {
-		mainSocket.send(JSON.stringify({ x: 0, y: 0, color: 10 }));
+	canvas.addEventListener("click", (event) => {
+		if (spacebarHeld || selectedColor === null) return;
+		const pixelX = Math.floor(event.offsetX / pixelSize);
+		const pixelY = Math.floor(event.offsetY / pixelSize);
+		// const randomColor = Math.floor(Math.random() * colors.length);
+		/** @satisfies {WebsocketEvent} */
+		const payload = { x: pixelX, y: pixelY, color: selectedColor };
+		mainSocket.send(JSON.stringify(payload));
 	});
 }
 
@@ -122,9 +164,9 @@ async function fetchInitialCanvasState(ctx) {
 	const response = await fetch("/canvas");
 	/** @type {Canvas} */
 	const json = await response.json();
-	console.log({ json });
 	for (let i = 0; i < json.pixels.length; i++) {
 		const pixel = json.pixels[i];
+		if (pixel === 0) continue;
 		ctx.fillStyle = colors[pixel];
 		ctx.fillRect(
 			(i % json.width) * pixelSize,
