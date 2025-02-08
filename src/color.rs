@@ -1,10 +1,11 @@
 use std::fmt::Display;
 
-use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 // All the colors from the fediverse canvas 2024
-#[derive(Clone, Serialize, Deserialize, Default, Copy, Debug)]
+#[derive(Clone, Serialize_repr, Deserialize_repr, Default, Copy, Debug)]
 #[allow(dead_code)]
+#[repr(u8)]
 pub enum Color {
     #[default]
     White = 0,

@@ -5,7 +5,11 @@ use figment::{
 };
 use futures::{stream::StreamExt, SinkExt};
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, net::SocketAddr};
+use std::{
+    fmt::Display,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
     extract::{
@@ -37,21 +41,46 @@ impl Display for Event {
     }
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Canvas {
-    pixels: Vec<Color>,
+    width: u32,
+    height: u32,
+    pixels: Vec<Arc<Mutex<Color>>>,
 }
 impl Default for Canvas {
     fn default() -> Self {
+        let pixels = (0..500 * 500)
+            .map(|_| Arc::new(Mutex::new(Color::default())))
+            .collect();
         Self {
-            pixels: [Color::default(); 500 * 500].to_vec(),
+            width: 500,
+            height: 500,
+            pixels,
+        }
+    }
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct SerializableCanvas {
+    width: u32,
+    height: u32,
+    pixels: Vec<Color>,
+}
+impl From<Canvas> for SerializableCanvas {
+    fn from(value: Canvas) -> Self {
+        SerializableCanvas {
+            width: value.width,
+            height: value.height,
+            pixels: value.pixels.iter().map(|x| *x.lock().unwrap()).collect(),
         }
     }
 }
 
 impl Canvas {
     fn set_pixel(&mut self, event: Event) {
-        self.pixels[event.y as usize * 500 + event.x as usize] = event.color;
+        let pixel = self.pixels[event.y as usize * 500 + event.x as usize].clone();
+        let mut pixel = pixel.lock().unwrap();
+        *pixel = event.color;
     }
 }
 
@@ -115,7 +144,7 @@ async fn main() {
 }
 
 async fn get_full_canvas(State(state): State<AppState>) -> impl IntoResponse {
-    Json(state.canvas_state)
+    Json(SerializableCanvas::from(state.canvas_state))
 }
 
 async fn canvas(
