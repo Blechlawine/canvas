@@ -14,7 +14,7 @@ use axum::{
     },
     response::{IntoResponse, Response},
     routing::get,
-    Router,
+    Json, Router,
 };
 use tokio::{net::TcpListener, sync::broadcast};
 use tower_http::{
@@ -37,15 +37,21 @@ impl Display for Event {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Serialize, Clone, Debug)]
 struct Canvas {
-    pixels: Box<[Color; 500 * 500]>,
+    pixels: Vec<Color>,
 }
 impl Default for Canvas {
     fn default() -> Self {
         Self {
-            pixels: Box::new([Color::default(); 500 * 500]),
+            pixels: [Color::default(); 500 * 500].to_vec(),
         }
+    }
+}
+
+impl Canvas {
+    fn set_pixel(&mut self, event: Event) {
+        self.pixels[event.y as usize * 500 + event.x as usize] = event.color;
     }
 }
 
@@ -84,6 +90,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/ws", get(canvas))
+        .route("/canvas", get(get_full_canvas))
         .fallback_service(ServeDir::new("static"))
         .layer(
             TraceLayer::new_for_http()
@@ -107,6 +114,10 @@ async fn main() {
     .unwrap();
 }
 
+async fn get_full_canvas(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.canvas_state)
+}
+
 async fn canvas(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
@@ -117,12 +128,10 @@ async fn canvas(
         .into_response())
 }
 
-async fn handle_canvas_socket(socket: WebSocket, state: AppState, addr: SocketAddr) {
+async fn handle_canvas_socket(socket: WebSocket, mut state: AppState, addr: SocketAddr) {
     let (mut socket_tx, mut socket_rx) = socket.split();
     let chan = state.channel;
     let mut event_receiver = chan.subscribe();
-
-    // TODO: send entire canvas state to the client
 
     let mut event_rx_task = tokio::spawn(async move {
         while let Ok(event) = event_receiver.recv().await {
@@ -139,7 +148,9 @@ async fn handle_canvas_socket(socket: WebSocket, state: AppState, addr: SocketAd
         while let Some(Ok(msg)) = socket_rx.next().await {
             match msg {
                 Message::Text(msg) => {
-                    if let Ok(de) = serde_json::from_str::<Event>(&msg) {
+                    let result = serde_json::from_str::<Event>(&msg);
+                    if let Ok(de) = result {
+                        state.canvas_state.set_pixel(de.clone());
                         let _ = chan.send(de);
                     }
                 }

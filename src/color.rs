@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[allow(dead_code)]
 pub enum Color {
     #[default]
-    White,
+    White = 0,
     LightGrey,
     MediumGrey,
     DeepGrey,
