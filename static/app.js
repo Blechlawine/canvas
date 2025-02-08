@@ -11,17 +11,32 @@ const pixelSize = 5;
 const canvas = document.getElementById("canvas");
 
 async function main() {
-	if (!canvas) return;
+	if (!canvas) {
+		console.error("No canvas element found");
+		return;
+	}
 	const ctx = canvas.getContext("2d");
-	console.log(ctx);
-	if (!ctx) return;
+	if (!ctx) {
+		console.error("No canvas context found");
+		return;
+	}
 
-	const { width, height } = await fetchInitialCanvasState(ctx);
-	canvas.height = height;
-	canvas.width = width;
+	canvas.style.pointerEvents = "none";
+
+	await fetchInitialCanvasState(ctx);
+
 	initSocket(ctx);
 	initCamera();
 	initToolbar();
+
+	canvas.style.pointerEvents = "auto";
+
+	// const reloadButton = document.createElement("button");
+	// reloadButton.innerHTML = "🔄";
+	// reloadButton.addEventListener("click", () => {
+	// 	fetchInitialCanvasState(ctx);
+	// });
+	// document.getElementById("toolbar").appendChild(reloadButton);
 }
 
 /** @type {number | null} */
@@ -133,6 +148,21 @@ function initCamera() {
 
 /**
  * @param {CanvasRenderingContext2D} ctx
+ * @param {number} x
+ * @param {number} y
+ * @param {number} color
+ */
+function drawRect(ctx, x, y, color) {
+	if (!colors[color]) {
+		console.error("Invalid color index:", color);
+		return;
+	}
+	ctx.fillStyle = colors[color];
+	ctx.fillRect(x * pixelSize, y * pixelSize, pixelSize, pixelSize);
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
  */
 function initSocket(ctx) {
 	const mainSocket = new WebSocket("/ws");
@@ -140,9 +170,7 @@ function initSocket(ctx) {
 	mainSocket.addEventListener("message", (event) => {
 		/** @type {WebsocketEvent} */
 		const data = JSON.parse(event.data);
-		console.log({ data });
-		ctx.fillStyle = colors[data.color];
-		ctx.fillRect(data.x * pixelSize, data.y * pixelSize, pixelSize, pixelSize);
+		drawRect(ctx, data.x, data.y, data.color);
 	});
 
 	canvas.addEventListener("click", (event) => {
@@ -158,27 +186,31 @@ function initSocket(ctx) {
 
 /**
  * @param {CanvasRenderingContext2D} ctx
- * @returns {Promise<{width: number; height: number; }>}
  */
 async function fetchInitialCanvasState(ctx) {
 	const response = await fetch("/canvas");
 	/** @type {Canvas} */
 	const json = await response.json();
-	for (let i = 0; i < json.pixels.length; i++) {
-		const pixel = json.pixels[i];
-		if (pixel === 0) continue;
-		ctx.fillStyle = colors[pixel];
-		ctx.fillRect(
-			(i % json.width) * pixelSize,
-			Math.floor(i / json.width) * pixelSize,
-			pixelSize,
-			pixelSize,
-		);
+	const canvasHeight = json.height * pixelSize;
+	const canvasWidth = json.width * pixelSize;
+	ctx.canvas.width = canvasWidth;
+	ctx.canvas.height = canvasHeight;
+
+	ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+	let pixelsDrawn = 0;
+	for (let y = 0; y < json.height; y++) {
+		for (let x = 0; x < json.width; x++) {
+			const index = y * json.width + x;
+			const pixel = json.pixels[index];
+
+			// Only draw non-zero pixels, because 0 is the default canvas color (white)
+			if (pixel !== 0) {
+				drawRect(ctx, x, y, pixel);
+				pixelsDrawn++;
+			}
+		}
 	}
-	return {
-		height: json.height * pixelSize,
-		width: json.width * pixelSize,
-	};
+	console.log(`drew ${pixelsDrawn} pixels`);
 }
 
 main();
